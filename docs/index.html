@@ -1,217 +1,700 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Authenticator v5</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/otpauth/9.1.2/otpauth.umd.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <style>
-        :root { --primary: #2563eb; --bg: #f3f4f6; --card: #ffffff; --danger: #dc2626; }
-        body { font-family: system-ui, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; }
-        .container { width: 100%; max-width: 450px; background: var(--card); padding: 24px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #d1d5db; border-radius: 8px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 8px; }
-        .account-card { background: #f9fafb; border: 1px solid #e5e7eb; padding: 15px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .otp-code { font-family: monospace; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
-        .progress-bar { height: 4px; background: var(--primary); width: 0%; transition: width 1s linear; }
-        #reader { width: 100%; border-radius: 12px; overflow: hidden; margin: 10px 0; }
-        .danger-btn { background: var(--danger); width: auto; padding: 5px 10px; font-size: 0.8rem; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com; connect-src 'none'; font-src https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
+  <title>Authenticator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/otpauth/9.1.2/otpauth.umd.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    :root {
+      --bg:        #09090b;
+      --s1:        #111113;
+      --s2:        #18181b;
+      --s3:        #27272a;
+      --border:    rgba(255,255,255,0.07);
+      --border-hi: rgba(255,255,255,0.14);
+      --cyan:      #22d3ee;
+      --cyan-dim:  rgba(34,211,238,0.12);
+      --green:     #4ade80;
+      --red:       #f87171;
+      --amber:     #fbbf24;
+      --text:      #fafafa;
+      --text2:     #a1a1aa;
+      --text3:     #52525b;
+      --r:         12px;
+      --sans:      'Plus Jakarta Sans', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 32px 16px 80px;
+    }
+
+    .app { width: 100%; max-width: 400px; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: var(--cyan-dim);
+      border: 1px solid rgba(34,211,238,.4);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+    }
+    .logo-icon svg { width: 16px; height: 16px; }
+    .logo-name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+    .logo-badge { font-size: 10px; font-family: var(--mono); color: var(--text3); letter-spacing: .04em; }
+
+    /* ── Panel ── */
+    .panel { background: var(--s1); border: 1px solid var(--border); border-radius: var(--r); padding: 24px; }
+    .panel-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .panel-sub   { font-size: 13px; color: var(--text3); margin-bottom: 20px; }
+
+    /* ── Inputs ── */
+    .field { margin-bottom: 8px; }
+    .field input, input.bare {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field input:focus, input.bare:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(34,211,238,.1);
+    }
+    .field input::placeholder, input.bare::placeholder { color: var(--text3); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; padding: 11px 16px;
+      border: none; border-radius: 8px;
+      font-family: var(--sans); font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: opacity .15s, transform .1s; margin-top: 8px;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .4; pointer-events: none; }
+    .btn-primary { background: var(--cyan); color: #000; }
+    .btn-ghost   { background: var(--s2); color: var(--text2); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--border-hi); color: var(--text); }
+    .btn-danger  { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.2); }
+    .btn-danger:hover { background: rgba(248,113,113,.18); }
+
+    .err { font-size: 12px; color: var(--red); font-family: var(--mono); min-height: 16px; margin-top: 6px; }
+
+    /* ── Migration notice ── */
+    #migrate-notice {
+      display: none;
+      background: rgba(251,191,36,.08);
+      border: 1px solid rgba(251,191,36,.25);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px; color: var(--amber);
+      margin-bottom: 14px; line-height: 1.6;
+    }
+    #migrate-notice.visible { display: block; }
+
+    /* ── Vault header ── */
+    #vault-screen { display: none; }
+    .vault-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .search-wrap { flex: 1; position: relative; }
+    .search-wrap svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--text3); pointer-events: none; }
+    .search-wrap input.bare { padding-left: 34px; padding-top: 9px; padding-bottom: 9px; }
+    .search-wrap input.bare:focus { border-color: var(--border-hi); box-shadow: none; }
+    .icon-btn {
+      flex-shrink: 0; width: 36px; height: 36px;
+      background: var(--s2); border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; display: grid; place-items: center;
+      transition: border-color .15s, color .15s; color: var(--text3);
+    }
+    .icon-btn:hover { border-color: var(--border-hi); color: var(--text); }
+    .icon-btn svg { width: 16px; height: 16px; }
+
+    /* ── Account cards ── */
+    #accs { margin-bottom: 16px; }
+    .acc {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 16px;
+      background: var(--s2); border: 1px solid var(--border); border-radius: var(--r);
+      margin-bottom: 6px; cursor: pointer;
+      transition: border-color .18s, background .18s; position: relative;
+    }
+    .acc:hover { border-color: var(--border-hi); background: var(--s3); }
+    .acc:hover .acc-del { opacity: 1; }
+
+    .acc-avatar {
+      flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px;
+      display: grid; place-items: center;
+      font-size: 14px; font-weight: 700; text-transform: uppercase;
+    }
+    .acc-body { flex: 1; min-width: 0; }
+    .acc-name {
+      font-size: 11px; font-weight: 600; color: var(--text2);
+      margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: .02em;
+    }
+    .acc-code {
+      font-family: var(--mono); font-size: 22px; font-weight: 700;
+      color: var(--text); letter-spacing: .1em;
+    }
+    .acc-hint { font-size: 10px; font-family: var(--mono); color: var(--text3); margin-top: 2px; height: 13px; }
+
+    /* ring */
+    .acc-ring { flex-shrink: 0; position: relative; width: 36px; height: 36px; }
+    .acc-ring svg { transform: rotate(-90deg); }
+    .ring-bg { stroke: var(--s3); }
+    .ring-fg { stroke: var(--cyan); }
+    .ring-fg.urgent { stroke: var(--red); }
+    .ring-num {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: 11px; font-family: var(--mono); font-weight: 700; color: var(--text2);
+    }
+
+    /* delete */
+    .acc-del {
+      position: absolute; top: 10px; right: 10px;
+      width: 24px; height: 24px; background: var(--s3);
+      border: 1px solid var(--border); border-radius: 6px;
+      cursor: pointer; display: grid; place-items: center;
+      opacity: 0; transition: opacity .15s, background .15s; color: var(--text3);
+    }
+    .acc-del:hover { background: rgba(248,113,113,.15); color: var(--red); border-color: rgba(248,113,113,.3); }
+    .acc-del svg { width: 12px; height: 12px; }
+
+    .empty { text-align: center; padding: 40px 0 32px; color: var(--text3); font-size: 13px; font-family: var(--mono); }
+    .empty svg { width: 36px; height: 36px; margin: 0 auto 12px; display: block; opacity: .25; }
+
+    /* ── Add / actions ── */
+    .sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+    .section-hd { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; }
+    #reader-wrap { display: none; border-radius: var(--r); overflow: hidden; margin-bottom: 8px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+
+    /* ── Modal ── */
+    .backdrop {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.75);
+      z-index: 200; align-items: center; justify-content: center; padding: 16px;
+    }
+    .backdrop.open { display: flex; }
+    .modal { background: var(--s1); border: 1px solid var(--border-hi); border-radius: var(--r); padding: 24px; width: 100%; max-width: 360px; }
+    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .modal-sub   { font-size: 13px; color: var(--text3); margin-bottom: 16px; line-height: 1.6; }
+    .modal-row   { display: flex; gap: 8px; margin-top: 8px; }
+    .modal-row .btn { margin-top: 0; }
+
+    /* ── Idle bar ── */
+    #idle-bar { position: fixed; top: 0; left: 0; height: 2px; background: var(--cyan); transition: width .9s linear, background .5s; z-index: 999; width: 100%; }
+
+    .restore-link { display: block; text-align: center; margin-top: 16px; font-size: 12px; color: var(--text3); cursor: pointer; transition: color .15s; }
+    .restore-link:hover { color: var(--cyan); }
+  </style>
 </head>
 <body>
 
-<div class="container">
-    <div id="lock-screen">
-        <h2 style="text-align:center">🔐 Secure Vault</h2>
-        <input type="password" id="master-pass" placeholder="Master Password">
-        <button onclick="unlockVault()">Unlock Vault</button>
-        <p id="fail-msg" style="color:var(--danger); font-size:0.8rem; text-align:center;"></p>
-        <div style="text-align:center; margin-top:15px">
-            <label style="color:var(--primary); cursor:pointer; font-size:0.8rem">📂 Restore Backup<input type="file" id="import-file" style="display:none" onchange="importBackup(event)"></label>
-        </div>
+<div id="idle-bar"></div>
+
+<!-- Export modal -->
+<div class="backdrop" id="export-modal">
+  <div class="modal">
+    <div class="modal-title">Confirm export</div>
+    <div class="modal-sub">Re-enter your master password to download the encrypted backup.</div>
+    <div class="field"><input type="password" id="export-pass" placeholder="Master password"></div>
+    <div class="err" id="export-err"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('export-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmExport()">Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round">
+          <rect x="2" y="7" width="12" height="8" rx="2"/>
+          <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+          <circle cx="8" cy="11" r="1" fill="#22d3ee" stroke="none"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-name">Authenticator</div>
+        <div class="logo-badge">TOTP · AES-256</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Lock screen -->
+  <div id="lock-screen">
+    <div class="panel">
+      <div class="panel-title">Unlock vault</div>
+      <div class="panel-sub">Enter your master password to access your codes.</div>
+      <div id="migrate-notice"></div>
+      <div class="field">
+        <input type="password" id="master-pass" placeholder="Master password"
+               onkeydown="if(event.key==='Enter')unlockVault()">
+      </div>
+      <button class="btn btn-primary" id="unlock-btn" onclick="unlockVault()">Unlock</button>
+      <div class="err" id="fail-msg"></div>
+      <label class="restore-link">
+        Import backup
+        <input type="file" id="import-file" style="display:none" accept=".json" onchange="importBackup(event)">
+      </label>
+    </div>
+  </div>
+
+  <!-- Vault screen -->
+  <div id="vault-screen">
+    <div class="vault-hd">
+      <div class="search-wrap">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 3.5 3.5" stroke-linecap="round"/>
+        </svg>
+        <input type="text" class="bare" id="search-bar" placeholder="Search accounts…" oninput="renderAccounts()">
+      </div>
+      <button class="icon-btn" onclick="lockVault()" title="Lock">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/>
+        </svg>
+      </button>
     </div>
 
-    <div id="vault-screen" style="display:none;">
-        <input type="text" id="search-bar" placeholder="🔍 Search..." oninput="renderLoop()">
-        <div id="accounts-container" style="margin: 20px 0"></div>
+    <div id="accs"></div>
 
-        <hr style="opacity:0.2">
-        <input type="text" id="new-label" placeholder="Label (e.g. GitHub)">
-        <div id="reader" style="display:none;"></div>
-        <button style="background:#4b5563" onclick="toggleScanner()">📷 Scan QR</button>
-        <input type="text" id="new-secret" placeholder="Secret Key">
-        <button onclick="addAccount()">➕ Add Account</button>
-        
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px">
-            <button style="background:#4b5563" onclick="exportBackup()">💾 Backup</button>
-            <button style="background:#4b5563" onclick="location.reload()">🔒 Lock</button>
-        </div>
-        <button class="danger-btn" style="width:100%; margin-top:20px" onclick="hardReset()">Wipe Everything</button>
+    <hr class="sep">
+    <div class="section-hd">Add account</div>
+    <div class="field"><input type="text" id="new-label"  placeholder="Label (e.g. GitHub)"></div>
+    <div class="field"><input type="text" id="new-secret" placeholder="Secret key (base32)"></div>
+    <div id="reader-wrap"><div id="reader"></div></div>
+    <div class="two-col">
+      <button class="btn btn-ghost" onclick="toggleScanner()">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/>
+          <rect x="3" y="12" width="5" height="5" rx="1"/><path d="M12 12h5v5M15 12v2"/>
+        </svg>
+        Scan QR
+      </button>
+      <button class="btn btn-primary" onclick="addAccount()">+ Add</button>
     </div>
+
+    <hr class="sep">
+    <div class="section-hd">Vault</div>
+    <div class="two-col">
+      <button class="btn btn-ghost" onclick="openModal('export-modal')">↓ Export backup</button>
+      <button class="btn btn-danger" onclick="hardReset()">Wipe all data</button>
+    </div>
+  </div>
 </div>
 
 <script>
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let sessionKey = null;
-    let failedAttempts = 0;
+'use strict';
 
-    // --- CRYPTO CORE ---
-    async function deriveKey(password, salt) {
-        const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-        return crypto.subtle.deriveKey(
-            { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
-            baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
-        );
-    }
+const VAULT_V6   = 'vault_v6';
+const VAULT_V5   = 'vault_v5';
+const ITERS_V6   = 600_000;
+const ITERS_V5   = 100_000;
+const IDLE_MS    = 5 * 60 * 1000;
+const BASE32_RE  = /^[A-Z2-7]+=*$/;
+const ENC        = new TextEncoder();
+const DEC        = new TextDecoder();
+const CIRCUMF    = 2 * Math.PI * 14;
 
-    async function crypt(mode, data, iv) {
-        const algo = { name: "AES-GCM", iv: new Uint8Array(iv) };
-        if (mode === 'encrypt') {
-            const cipher = await crypto.subtle.encrypt(algo, sessionKey, encoder.encode(data));
-            return Array.from(new Uint8Array(cipher));
-        } else {
-            const plain = await crypto.subtle.decrypt(algo, sessionKey, new Uint8Array(data));
-            return decoder.decode(plain);
-        }
-    }
+// Avatar palette: [bg, fg]
+const PALETTE = [
+  ['#1e3a5f','#60a5fa'],['#1a3a2a','#4ade80'],['#3b1f4e','#c084fc'],
+  ['#3a1f1f','#f87171'],['#2e2a14','#fbbf24'],['#1a3340','#22d3ee'],
+];
+function avatarStyle(label) {
+  const i = [...label].reduce((a,c) => a + c.charCodeAt(0), 0) % PALETTE.length;
+  return PALETTE[i];
+}
 
-    // --- ACTIONS ---
-    async function unlockVault() {
-        const pass = document.getElementById('master-pass').value;
-        const raw = localStorage.getItem('vault_v5');
-        
-        if (!raw) {
-            // New Vault Initialization
-            const salt = crypto.getRandomValues(new Uint8Array(16));
-            sessionKey = await deriveKey(pass, salt);
-            await saveVault([], salt); 
-            return showVault();
-        }
+let sessionKey     = null;
+let failedAttempts = 0;
+let renderTimer    = null;
+let idleTimer      = null;
+let scannerInst    = null;
 
-        const vault = JSON.parse(raw);
-        try {
-            sessionKey = await deriveKey(pass, new Uint8Array(vault.salt));
-            await crypt('decrypt', vault.test.cipher, vault.test.iv);
-            failedAttempts = 0;
-            showVault();
-        } catch (e) {
-            failedAttempts++;
-            if (failedAttempts >= 5) { hardReset(true); }
-            else { document.getElementById('fail-msg').innerText = `Wrong password. ${5-failedAttempts} left.`; }
-        }
-    }
+/* ── Idle ──────────────────────────────────────────────────────────────────── */
+function resetIdle() {
+  clearTimeout(idleTimer);
+  const bar = document.getElementById('idle-bar');
+  bar.style.width = '100%'; bar.style.background = 'var(--cyan)';
+  idleTimer = setTimeout(() => {
+    bar.style.width = '0'; bar.style.background = 'var(--red)';
+    setTimeout(lockVault, 900);
+  }, IDLE_MS);
+}
+['click','keydown','mousemove','touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => { if (sessionKey) resetIdle(); }, { passive: true })
+);
 
-    async function saveVault(accounts, saltOverride = null) {
-        const raw = localStorage.getItem('vault_v5');
-        const existingVault = raw ? JSON.parse(raw) : null;
-        
-        // Ensure salt never changes for a vault once set
-        const salt = saltOverride || new Uint8Array(existingVault.salt);
-        
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const cipher = await crypt('encrypt', "verify", iv);
-        
-        localStorage.setItem('vault_v5', JSON.stringify({
-            accounts,
-            salt: Array.from(salt),
-            test: { cipher, iv: Array.from(iv) }
-        }));
-    }
+/* ── Crypto ────────────────────────────────────────────────────────────────── */
+async function deriveKey(password, salt, iters = ITERS_V6) {
+  const raw = await crypto.subtle.importKey('raw', ENC.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: iters, hash: 'SHA-256' },
+    raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function symEncrypt(key, pt) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, ENC.encode(pt));
+  return { cipher: Array.from(new Uint8Array(ct)), iv: Array.from(iv) };
+}
+async function symDecrypt(key, { cipher, iv }) {
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(iv) }, key, new Uint8Array(cipher));
+  return DEC.decode(pt);
+}
+const encrypt = pt  => symEncrypt(sessionKey, pt);
+const decrypt = obj => symDecrypt(sessionKey, obj);
 
-    async function addAccount() {
-        const label = document.getElementById('new-label').value || "Unnamed";
-        const secret = document.getElementById('new-secret').value.replace(/\s+/g, '').toUpperCase();
-        if (!secret || !sessionKey) return;
+/* ── Vault I/O ─────────────────────────────────────────────────────────────── */
+function loadRaw(key = VAULT_V6) {
+  const r = localStorage.getItem(key);
+  return r ? JSON.parse(r) : null;
+}
+function validateShape(v) {
+  if (!v || typeof v !== 'object') return false;
+  if (!Array.isArray(v.salt) || v.salt.length !== 16) return false;
+  if (!v.test || !Array.isArray(v.test.cipher) || !Array.isArray(v.test.iv)) return false;
+  if (!Array.isArray(v.accounts)) return false;
+  for (const a of v.accounts) {
+    if (typeof a.label !== 'string' || !Array.isArray(a.cipher) || !Array.isArray(a.iv)) return false;
+  }
+  return true;
+}
+async function saveVault(accounts) {
+  const ex   = loadRaw();
+  const salt = ex ? new Uint8Array(ex.salt) : crypto.getRandomValues(new Uint8Array(16));
+  const test = await encrypt('verify');
+  localStorage.setItem(VAULT_V6, JSON.stringify({ version: 6, accounts, salt: Array.from(salt), test }));
+}
 
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const cipher = await crypt('encrypt', secret, iv);
-        
-        const vault = JSON.parse(localStorage.getItem('vault_v5'));
-        vault.accounts.push({ label, cipher, iv: Array.from(iv) });
-        
-        await saveVault(vault.accounts);
-        document.getElementById('new-label').value = "";
-        document.getElementById('new-secret').value = "";
-        renderLoop();
-    }
+/* ── v5 → v6 migration ─────────────────────────────────────────────────────── */
+// v5 used 100k PBKDF2 iterations; v6 uses 600k with the same salt.
+// We decrypt each secret with the old key and re-encrypt with the new one.
+async function migrateV5(password) {
+  const v5 = loadRaw(VAULT_V5);
+  if (!v5 || !validateShape(v5)) return false;
+  const oldKey = await deriveKey(password, new Uint8Array(v5.salt), ITERS_V5);
+  try { await symDecrypt(oldKey, v5.test); }
+  catch { return false; } // wrong password
 
-    async function renderLoop() {
-        const container = document.getElementById('accounts-container');
-        const search = document.getElementById('search-bar').value.toLowerCase();
-        const vault = JSON.parse(localStorage.getItem('vault_v5'));
-        const time = 30 - (Math.floor(Date.now() / 1000) % 30);
+  // New key, same salt (keeps the exported backup portable)
+  sessionKey = await deriveKey(password, new Uint8Array(v5.salt), ITERS_V6);
 
-        container.innerHTML = "";
-        for (const [idx, acc] of vault.accounts.entries()) {
-            if (search && !acc.label.toLowerCase().includes(search)) continue;
-            try {
-                const secret = await crypt('decrypt', acc.cipher, acc.iv);
-                const code = new OTPAuth.TOTP({ secret }).generate();
-                
-                const card = document.createElement('div');
-                card.className = 'account-card';
-                card.innerHTML = `
-                    <div style="flex:1" onclick="navigator.clipboard.writeText('${code}').then(()=>alert('Copied'))">
-                        <div style="font-size:0.7rem; color:#6b7280">${acc.label}</div>
-                        <div class="otp-code">${code}</div>
-                        <div style="height:2px; background:#eee"><div class="progress-bar" style="width:${(time/30)*100}%"></div></div>
-                    </div>
-                    <button class="danger-btn" onclick="deleteAcc(${idx})">🗑️</button>`;
-                container.appendChild(card);
-            } catch(e) {}
-        }
-    }
+  const accounts = [];
+  for (const acc of v5.accounts) {
+    const secret = await symDecrypt(oldKey, acc);
+    accounts.push({ label: acc.label, ...(await encrypt(secret)) });
+  }
+  const test = await encrypt('verify');
+  localStorage.setItem(VAULT_V6, JSON.stringify({ version: 6, accounts, salt: v5.salt, test }));
+  localStorage.removeItem(VAULT_V5);
+  return true;
+}
 
-    function showVault() {
-        document.getElementById('lock-screen').style.display = 'none';
-        document.getElementById('vault-screen').style.display = 'block';
-        setInterval(renderLoop, 1000);
-        renderLoop();
-    }
+/* ── Unlock / lock ──────────────────────────────────────────────────────────── */
+async function unlockVault() {
+  const pass = document.getElementById('master-pass').value;
+  if (!pass) return;
+  setErr('fail-msg', '');
 
-    function deleteAcc(idx) {
-        if (!confirm("Delete?")) return;
-        const vault = JSON.parse(localStorage.getItem('vault_v5'));
-        vault.accounts.splice(idx, 1);
-        saveVault(vault.accounts).then(renderLoop);
-    }
+  const v6 = loadRaw();
+  const v5exists = !!localStorage.getItem(VAULT_V5);
 
-    function hardReset(auto = false) {
-        if (auto || (confirm("Wipe all data?") && confirm("Sure?"))) {
-            localStorage.removeItem('vault_v5');
-            location.reload();
-        }
-    }
+  // Brand new
+  if (!v6 && !v5exists) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    sessionKey = await deriveKey(pass, salt);
+    await saveVault([]);
+    return showVault();
+  }
 
-    function exportBackup() {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([localStorage.getItem('vault_v5')], {type:'application/json'}));
-        a.download = 'vault_v5.json'; a.click();
-    }
+  // Migrate v5
+  if (!v6 && v5exists) {
+    if (await migrateV5(pass)) { failedAttempts = 0; return showVault(); }
+    return bumpFailed();
+  }
 
-    function importBackup(e) {
-        const r = new FileReader();
-        r.onload = (f) => { localStorage.setItem('vault_v5', f.target.result); location.reload(); };
-        r.readAsText(e.target.files[0]);
-    }
+  // Normal v6
+  try {
+    sessionKey = await deriveKey(pass, new Uint8Array(v6.salt));
+    await decrypt(v6.test);
+    failedAttempts = 0;
+    showVault();
+  } catch { sessionKey = null; bumpFailed(); }
+}
 
-    function toggleScanner() {
-        const r = document.getElementById('reader');
-        if (r.style.display === 'none') {
-            r.style.display = 'block';
-            const scanner = new Html5Qrcode("reader");
-            scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (t) => {
-                try {
-                    const url = new URL(t);
-                    document.getElementById('new-secret').value = url.searchParams.get("secret");
-                    document.getElementById('new-label').value = url.searchParams.get("issuer") || "Scanned";
-                    scanner.stop(); r.style.display = 'none';
-                } catch(e) { alert("Invalid QR"); }
-            });
-        } else { document.getElementById('reader').style.display = 'none'; }
-    }
+function bumpFailed() {
+  failedAttempts++;
+  const left = 5 - failedAttempts;
+  if (left <= 0) {
+    setErr('fail-msg', 'Too many attempts — wait 30 s.');
+    document.getElementById('unlock-btn').disabled = true;
+    setTimeout(() => {
+      failedAttempts = 0;
+      document.getElementById('unlock-btn').disabled = false;
+      setErr('fail-msg', '');
+    }, 30_000);
+  } else {
+    setErr('fail-msg', `Wrong password — ${left} attempt${left === 1 ? '' : 's'} left.`);
+  }
+}
+
+function lockVault() {
+  sessionKey = null;
+  clearInterval(renderTimer); renderTimer = null;
+  clearTimeout(idleTimer);
+  document.getElementById('vault-screen').style.display = 'none';
+  document.getElementById('lock-screen').style.display  = 'block';
+  document.getElementById('master-pass').value = '';
+  setErr('fail-msg', '');
+}
+
+function showVault() {
+  document.getElementById('lock-screen').style.display  = 'none';
+  document.getElementById('vault-screen').style.display = 'block';
+  resetIdle();
+  renderAccounts();
+  if (!renderTimer) renderTimer = setInterval(renderAccounts, 1000);
+}
+
+/* ── On load: show migration notice ─────────────────────────────────────────── */
+window.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem(VAULT_V5) && !localStorage.getItem(VAULT_V6)) {
+    const n = document.getElementById('migrate-notice');
+    n.style.cssText = 'display:block;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber);margin-bottom:14px;line-height:1.6';
+    n.textContent = '↑ Legacy vault detected — it will be automatically upgraded after you unlock.';
+  }
+});
+
+/* ── Render ─────────────────────────────────────────────────────────────────── */
+async function renderAccounts() {
+  const container = document.getElementById('accs');
+  const search    = document.getElementById('search-bar').value.toLowerCase();
+  const vault     = loadRaw();
+  const timeLeft  = 30 - (Math.floor(Date.now() / 1000) % 30);
+  const pct       = timeLeft / 30;
+
+  container.innerHTML = '';
+
+  const accounts = vault?.accounts ?? [];
+  const list = accounts.filter(a => !search || a.label.toLowerCase().includes(search));
+
+  if (!list.length) {
+    const el = document.createElement('div');
+    el.className = 'empty';
+    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>${accounts.length ? 'No results.' : 'No accounts yet.'}`;
+    container.appendChild(el);
+    return;
+  }
+
+  for (const [idx, acc] of list.entries()) {
+    let secret, code;
+    try {
+      secret = await decrypt(acc);
+      code   = new OTPAuth.TOTP({ secret }).generate();
+    } catch { continue; }
+
+    const [avatarBg, avatarFg] = avatarStyle(acc.label);
+    const urgent    = timeLeft <= 7;
+    const dashOff   = (CIRCUMF * (1 - pct)).toFixed(2);
+
+    // Card
+    const card = document.createElement('div');
+    card.className = 'acc';
+
+    // Avatar
+    const av = document.createElement('div');
+    av.className = 'acc-avatar';
+    av.style.cssText = `background:${avatarBg};color:${avatarFg}`;
+    av.textContent = acc.label.slice(0, 2).toUpperCase();
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'acc-body';
+
+    const name = document.createElement('div');
+    name.className = 'acc-name';
+    name.textContent = acc.label;
+
+    const codeEl = document.createElement('div');
+    codeEl.className = 'acc-code';
+    codeEl.textContent = code.slice(0,3) + ' ' + code.slice(3);
+
+    const hint = document.createElement('div');
+    hint.className = 'acc-hint';
+    hint.textContent = 'tap to copy';
+
+    body.append(name, codeEl, hint);
+
+    // Ring countdown
+    const ring = document.createElement('div');
+    ring.className = 'acc-ring';
+    ring.innerHTML = `<svg width="36" height="36" viewBox="0 0 36 36">
+      <circle class="ring-bg" cx="18" cy="18" r="14" fill="none" stroke-width="3"/>
+      <circle class="ring-fg${urgent ? ' urgent' : ''}" cx="18" cy="18" r="14" fill="none"
+        stroke-width="3" stroke-linecap="round"
+        stroke-dasharray="${CIRCUMF.toFixed(2)}" stroke-dashoffset="${dashOff}"/>
+    </svg><div class="ring-num">${timeLeft}</div>`;
+
+    // Delete
+    const del = document.createElement('button');
+    del.className = 'acc-del';
+    del.setAttribute('aria-label', 'Delete ' + acc.label);
+    del.innerHTML = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M5 5l10 10M15 5L5 15"/>
+    </svg>`;
+    del.addEventListener('click', e => { e.stopPropagation(); deleteAccount(idx); });
+
+    card.append(av, body, ring, del);
+    card.addEventListener('click', () => {
+      navigator.clipboard.writeText(code).then(() => {
+        hint.textContent = '✓ copied';
+        setTimeout(() => { hint.textContent = 'tap to copy'; }, 1800);
+      });
+    });
+
+    container.appendChild(card);
+  }
+}
+
+/* ── Add account ────────────────────────────────────────────────────────────── */
+async function addAccount() {
+  const label  = document.getElementById('new-label').value.trim() || 'Unnamed';
+  const secret = document.getElementById('new-secret').value.replace(/\s+/g,'').toUpperCase();
+  if (!secret || !sessionKey) return;
+  if (!BASE32_RE.test(secret)) { alert('Invalid secret: must be base32 (A–Z, 2–7).'); return; }
+  try { new OTPAuth.TOTP({ secret }).generate(); } catch { alert('Does not produce a valid TOTP code.'); return; }
+
+  const vault = loadRaw();
+  vault.accounts.push({ label, ...(await encrypt(secret)) });
+  await saveVault(vault.accounts);
+  document.getElementById('new-label').value  = '';
+  document.getElementById('new-secret').value = '';
+  renderAccounts();
+}
+
+/* ── Delete account ─────────────────────────────────────────────────────────── */
+function deleteAccount(idx) {
+  const vault = loadRaw();
+  const label = vault.accounts[idx]?.label ?? 'this account';
+  if (!confirm(`Remove "${label}"?`)) return;
+  vault.accounts.splice(idx, 1);
+  saveVault(vault.accounts).then(renderAccounts);
+}
+
+/* ── Hard reset ─────────────────────────────────────────────────────────────── */
+function hardReset() {
+  if (prompt('Type WIPE to permanently delete all vault data:') !== 'WIPE') return;
+  if (!confirm('This cannot be undone. All accounts will be lost.')) return;
+  localStorage.removeItem(VAULT_V6);
+  localStorage.removeItem(VAULT_V5);
+  location.reload();
+}
+
+/* ── Export ─────────────────────────────────────────────────────────────────── */
+function openModal(id) {
+  if (id === 'export-modal') {
+    document.getElementById('export-pass').value = '';
+    setErr('export-err', '');
+  }
+  document.getElementById(id).classList.add('open');
+  setTimeout(() => document.getElementById('export-pass')?.focus(), 60);
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+async function confirmExport() {
+  const pass = document.getElementById('export-pass').value;
+  if (!pass) { setErr('export-err', 'Enter your password.'); return; }
+  const vault = loadRaw();
+  try {
+    const key = await deriveKey(pass, new Uint8Array(vault.salt));
+    await symDecrypt(key, vault.test);
+  } catch { setErr('export-err', 'Wrong password.'); return; }
+
+  const blob = new Blob([localStorage.getItem(VAULT_V6)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `vault_backup_${new Date().toISOString().slice(0,10)}.json`,
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+  closeModal('export-modal');
+}
+
+/* ── Import ─────────────────────────────────────────────────────────────────── */
+function importBackup(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    let parsed;
+    try { parsed = JSON.parse(ev.target.result); }
+    catch { alert('Invalid file: not valid JSON.'); return; }
+    if (!validateShape(parsed)) { alert('Invalid file: unrecognised vault format.'); return; }
+    if (!confirm('Replace current vault with this backup?')) return;
+    // Store under the correct key based on version; clear the other
+    const target = (parsed.version === 6) ? VAULT_V6 : VAULT_V5;
+    localStorage.setItem(target, ev.target.result);
+    if (target === VAULT_V6) localStorage.removeItem(VAULT_V5);
+    else localStorage.removeItem(VAULT_V6);
+    location.reload();
+  };
+  r.readAsText(file);
+  e.target.value = '';
+}
+
+/* ── QR Scanner ─────────────────────────────────────────────────────────────── */
+async function toggleScanner() {
+  const wrap = document.getElementById('reader-wrap');
+  if (scannerInst) {
+    await scannerInst.stop().catch(() => {});
+    scannerInst = null; wrap.style.display = 'none'; return;
+  }
+  wrap.style.display = 'block';
+  scannerInst = new Html5Qrcode('reader');
+  scannerInst.start({ facingMode: 'environment' }, { fps: 10, qrbox: 230 }, text => {
+    try {
+      const url    = new URL(text);
+      const secret = (url.searchParams.get('secret') || '').replace(/\s+/g,'').toUpperCase();
+      const issuer = url.searchParams.get('issuer') || 'Scanned';
+      if (!BASE32_RE.test(secret)) { alert('QR has an invalid secret.'); return; }
+      document.getElementById('new-secret').value = secret;
+      document.getElementById('new-label').value  = issuer.replace(/[<>&"']/g,'').slice(0,64);
+      scannerInst.stop().catch(() => {}); scannerInst = null; wrap.style.display = 'none';
+    } catch { alert('Unrecognised QR format.'); }
+  }).catch(() => { wrap.style.display = 'none'; });
+}
+
+/* ── Util ───────────────────────────────────────────────────────────────────── */
+function setErr(id, msg) { document.getElementById(id).textContent = msg; }
 </script>
 </body>
 </html>
