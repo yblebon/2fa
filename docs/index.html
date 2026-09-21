@@ -753,6 +753,20 @@ async function confirmExport() {
 }
 
 /* ── Import ─────────────────────────────────────────────────────────────────── */
+// True only if replacing would actually destroy something. The accounts array is stored
+// unencrypted (only each secret is encrypted), so an empty vault can be recognised without
+// the password. Anything unparsable or unexpected is treated as data, to stay on the safe side.
+function existingVaultHasData() {
+  for (const k of [VAULT_V6, VAULT_V5]) {
+    const raw = localStorage.getItem(k);
+    if (!raw) continue;
+    try {
+      const v = JSON.parse(raw);
+      if (!(v && Array.isArray(v.accounts) && v.accounts.length === 0)) return true;
+    } catch { return true; }
+  }
+  return false;
+}
 function importBackup(e) {
   const file = e.target.files[0]; if (!file) return;
   const r = new FileReader();
@@ -761,7 +775,7 @@ function importBackup(e) {
     try { parsed = JSON.parse(ev.target.result); }
     catch { alert('Invalid file: not valid JSON.'); return; }
     if (!validateShape(parsed)) { alert('Invalid file: unrecognised vault format.'); return; }
-    if (!confirm('Replace current vault with this backup?')) return;
+    if (existingVaultHasData() && !confirm('Replace current vault with this backup?')) return;
     // Store under the correct key based on version; clear the other
     const target = (parsed.version === 6) ? VAULT_V6 : VAULT_V5;
     localStorage.setItem(target, ev.target.result);
