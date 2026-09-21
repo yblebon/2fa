@@ -251,8 +251,8 @@
   <!-- Lock screen -->
   <div id="lock-screen">
     <div class="panel">
-      <div class="panel-title">Unlock vault</div>
-      <div class="panel-sub">Enter your master password to access your codes.</div>
+      <div class="panel-title" id="lock-title">Unlock vault</div>
+      <div class="panel-sub" id="lock-sub">Enter your master password to access your codes.</div>
       <div id="migrate-notice"></div>
       <div class="field">
         <input type="password" id="master-pass" placeholder="Master password"
@@ -318,6 +318,10 @@ const VAULT_V5   = 'vault_v5';
 const ITERS_V6   = 600_000;
 const ITERS_V5   = 100_000;
 const IDLE_MS    = 5 * 60 * 1000;
+const LOCK_KEY     = 'vault_lockout';
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_MS   = 30_000;
+const MIN_PASS_LEN = 12;
 const BASE32_RE  = /^[A-Z2-7]+=*$/;
 const ENC        = new TextEncoder();
 const DEC        = new TextDecoder();
@@ -334,7 +338,8 @@ function avatarStyle(label) {
 }
 
 let sessionKey     = null;
-let failedAttempts = 0;
+let unlocking      = false;
+let lockoutTimer   = null;
 let renderTimer    = null;
 let idleTimer      = null;
 let scannerInst    = null;
@@ -385,14 +390,30 @@ function validateShape(v) {
   if (!Array.isArray(v.accounts)) return false;
   for (const a of v.accounts) {
     if (typeof a.label !== 'string' || !Array.isArray(a.cipher) || !Array.isArray(a.iv)) return false;
+    if (a.id !== undefined && typeof a.id !== 'string') return false;
   }
   return true;
 }
-async function saveVault(accounts) {
-  const ex   = loadRaw();
-  const salt = ex ? new Uint8Array(ex.salt) : crypto.getRandomValues(new Uint8Array(16));
+// `salt` MUST be the salt sessionKey was derived from. Only pass it when creating a vault;
+// afterwards it is read back from the stored vault. (Never generate a fresh salt in here:
+// the key in memory would no longer match what is stored, and the vault could never be reopened.)
+async function saveVault(accounts, salt) {
+  let s = salt;
+  if (!s) {
+    const ex = loadRaw();
+    if (!ex) throw new Error('saveVault: no existing vault and no salt supplied');
+    s = new Uint8Array(ex.salt);
+  }
   const test = await encrypt('verify');
-  localStorage.setItem(VAULT_V6, JSON.stringify({ version: 6, accounts, salt: Array.from(salt), test }));
+  localStorage.setItem(VAULT_V6, JSON.stringify({ version: 6, accounts, salt: Array.from(s), test }));
+}
+
+// FIX 2 support: older vaults have no per-account id. Assign one once, on first unlock.
+async function ensureAccountIds() {
+  const v = loadRaw();
+  if (!v || v.accounts.every(a => a.id)) return;
+  for (const a of v.accounts) if (!a.id) a.id = crypto.randomUUID();
+  await saveVault(v.accounts);
 }
 
 /* ── v5 → v6 migration ─────────────────────────────────────────────────────── */
@@ -411,7 +432,7 @@ async function migrateV5(password) {
   const accounts = [];
   for (const acc of v5.accounts) {
     const secret = await symDecrypt(oldKey, acc);
-    accounts.push({ label: acc.label, ...(await encrypt(secret)) });
+    accounts.push({ id: crypto.randomUUID(), label: acc.label, ...(await encrypt(secret)) });
   }
   const test = await encrypt('verify');
   localStorage.setItem(VAULT_V6, JSON.stringify({ version: 6, accounts, salt: v5.salt, test }));
@@ -419,50 +440,118 @@ async function migrateV5(password) {
   return true;
 }
 
+/* ── Lockout ────────────────────────────────────────────────────────────────── */
+// Persisted in localStorage so a page reload doesn't reset it, and enforced inside
+// unlockVault() so pressing Enter can't bypass a disabled button.
+// NOTE: this is only a speed bump for guessing through the UI. Anyone who can read
+// localStorage can attack the ciphertext offline; the real protection is password
+// strength + the PBKDF2 cost.
+function getLockout() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LOCK_KEY));
+    if (s && Number.isFinite(s.fails) && Number.isFinite(s.until)) {
+      // clamp so a clock set far into the future can't lock the user out for good
+      return { fails: s.fails, until: Math.min(s.until, Date.now() + LOCKOUT_MS) };
+    }
+  } catch {}
+  return { fails: 0, until: 0 };
+}
+function setLockout(s) { try { localStorage.setItem(LOCK_KEY, JSON.stringify(s)); } catch {} }
+function lockoutRemaining() { return Math.max(0, getLockout().until - Date.now()); }
+
+function syncLockoutUI() {
+  const btn = document.getElementById('unlock-btn');
+  const ms  = lockoutRemaining();
+  clearTimeout(lockoutTimer);
+  if (ms > 0) {
+    btn.disabled = true;
+    setErr('fail-msg', `Too many attempts — wait ${Math.ceil(ms / 1000)} s.`);
+    lockoutTimer = setTimeout(syncLockoutUI, 500);
+  } else {
+    btn.disabled = unlocking;
+    const s = getLockout();
+    if (s.until) { setLockout({ fails: 0, until: 0 }); setErr('fail-msg', ''); }
+  }
+}
+
+function refreshLockCopy() {
+  const fresh = !localStorage.getItem(VAULT_V6) && !localStorage.getItem(VAULT_V5);
+  document.getElementById('lock-title').textContent = fresh ? 'Create vault' : 'Unlock vault';
+  document.getElementById('lock-sub').textContent   = fresh
+    ? `Choose a master password (at least ${MIN_PASS_LEN} characters). It cannot be recovered if you forget it.`
+    : 'Enter your master password to access your codes.';
+  document.getElementById('unlock-btn').textContent = fresh ? 'Create' : 'Unlock';
+}
+
 /* ── Unlock / lock ──────────────────────────────────────────────────────────── */
 async function unlockVault() {
-  const pass = document.getElementById('master-pass').value;
+  if (unlocking) return;                       // no parallel guesses (Enter held / double click)
+  const input = document.getElementById('master-pass');
+  const pass  = input.value;
   if (!pass) return;
+  if (lockoutRemaining() > 0) { syncLockoutUI(); return; }
+
+  unlocking = true;
+  document.getElementById('unlock-btn').disabled = true;
   setErr('fail-msg', '');
-
-  const v6 = loadRaw();
-  const v5exists = !!localStorage.getItem(VAULT_V5);
-
-  // Brand new
-  if (!v6 && !v5exists) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    sessionKey = await deriveKey(pass, salt);
-    await saveVault([]);
-    return showVault();
-  }
-
-  // Migrate v5
-  if (!v6 && v5exists) {
-    if (await migrateV5(pass)) { failedAttempts = 0; return showVault(); }
-    return bumpFailed();
-  }
-
-  // Normal v6
   try {
-    sessionKey = await deriveKey(pass, new Uint8Array(v6.salt));
-    await decrypt(v6.test);
-    failedAttempts = 0;
+    const v6       = loadRaw();
+    const v5exists = !!localStorage.getItem(VAULT_V5);
+
+    // Brand new vault
+    if (!v6 && !v5exists) {
+      if (pass.length < MIN_PASS_LEN) {
+        setErr('fail-msg', `Choose a master password of at least ${MIN_PASS_LEN} characters.`);
+        return;
+      }
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      sessionKey = await deriveKey(pass, salt);
+      input.value = '';                        // password no longer needed in the DOM
+      await saveVault([], salt);               // persist the SAME salt the key came from
+      setLockout({ fails: 0, until: 0 });
+      return showVault();
+    }
+
+    // Migrate v5
+    if (!v6 && v5exists) {
+      if (await migrateV5(pass)) {
+        input.value = '';
+        setLockout({ fails: 0, until: 0 });
+        return showVault();
+      }
+      return bumpFailed();
+    }
+
+    // Normal v6
+    let ok = false;
+    try {
+      sessionKey = await deriveKey(pass, new Uint8Array(v6.salt));
+      input.value = '';                        // clear as soon as the key exists
+      await decrypt(v6.test);
+      ok = true;
+    } catch { sessionKey = null; }
+    if (!ok) return bumpFailed();
+
+    await ensureAccountIds();
+    setLockout({ fails: 0, until: 0 });
     showVault();
-  } catch { sessionKey = null; bumpFailed(); }
+  } catch (err) {
+    console.error(err);
+    sessionKey = null;
+    setErr('fail-msg', 'Could not open the vault (storage error or corrupted data).');
+  } finally {
+    unlocking = false;
+    syncLockoutUI();
+  }
 }
 
 function bumpFailed() {
-  failedAttempts++;
-  const left = 5 - failedAttempts;
-  if (left <= 0) {
-    setErr('fail-msg', 'Too many attempts — wait 30 s.');
-    document.getElementById('unlock-btn').disabled = true;
-    setTimeout(() => {
-      failedAttempts = 0;
-      document.getElementById('unlock-btn').disabled = false;
-      setErr('fail-msg', '');
-    }, 30_000);
+  const fails = getLockout().fails + 1;
+  if (fails >= MAX_ATTEMPTS) {
+    setLockout({ fails: 0, until: Date.now() + LOCKOUT_MS });   // message shown by syncLockoutUI()
   } else {
+    setLockout({ fails, until: 0 });
+    const left = MAX_ATTEMPTS - fails;
     setErr('fail-msg', `Wrong password — ${left} attempt${left === 1 ? '' : 's'} left.`);
   }
 }
@@ -475,6 +564,8 @@ function lockVault() {
   document.getElementById('lock-screen').style.display  = 'block';
   document.getElementById('master-pass').value = '';
   setErr('fail-msg', '');
+  refreshLockCopy();
+  syncLockoutUI();
 }
 
 function showVault() {
@@ -485,13 +576,15 @@ function showVault() {
   if (!renderTimer) renderTimer = setInterval(renderAccounts, 1000);
 }
 
-/* ── On load: show migration notice ─────────────────────────────────────────── */
+/* ── On load: migration notice, create/unlock copy, persisted lockout ───────── */
 window.addEventListener('DOMContentLoaded', () => {
   if (localStorage.getItem(VAULT_V5) && !localStorage.getItem(VAULT_V6)) {
     const n = document.getElementById('migrate-notice');
     n.style.cssText = 'display:block;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber);margin-bottom:14px;line-height:1.6';
     n.textContent = '↑ Legacy vault detected — it will be automatically upgraded after you unlock.';
   }
+  refreshLockCopy();
+  syncLockoutUI();
 });
 
 /* ── Render ─────────────────────────────────────────────────────────────────── */
@@ -517,7 +610,7 @@ async function renderAccounts() {
     return;
   }
 
-  for (const [idx, acc] of list.entries()) {
+  for (const acc of list) {
     let secret, code;
     try {
       secret = await decrypt(acc);
@@ -573,7 +666,7 @@ async function renderAccounts() {
     del.innerHTML = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
       <path d="M5 5l10 10M15 5L5 15"/>
     </svg>`;
-    del.addEventListener('click', e => { e.stopPropagation(); deleteAccount(idx); });
+    del.addEventListener('click', e => { e.stopPropagation(); deleteAccount(acc.id); });
 
     card.append(av, body, ring, del);
     card.addEventListener('click', () => {
@@ -596,7 +689,7 @@ async function addAccount() {
   try { new OTPAuth.TOTP({ secret }).generate(); } catch { alert('Does not produce a valid TOTP code.'); return; }
 
   const vault = loadRaw();
-  vault.accounts.push({ label, ...(await encrypt(secret)) });
+  vault.accounts.push({ id: crypto.randomUUID(), label, ...(await encrypt(secret)) });
   await saveVault(vault.accounts);
   document.getElementById('new-label').value  = '';
   document.getElementById('new-secret').value = '';
@@ -604,12 +697,21 @@ async function addAccount() {
 }
 
 /* ── Delete account ─────────────────────────────────────────────────────────── */
-function deleteAccount(idx) {
-  const vault = loadRaw();
-  const label = vault.accounts[idx]?.label ?? 'this account';
-  if (!confirm(`Remove "${label}"?`)) return;
-  vault.accounts.splice(idx, 1);
-  saveVault(vault.accounts).then(renderAccounts);
+// Delete by stable id, not by list position: with a search filter active the position in the
+// rendered list is not the position in the vault, and another tab may have changed the vault.
+async function deleteAccount(id) {
+  if (!id) return;
+  const target = loadRaw()?.accounts.find(a => a.id === id);
+  if (!target) return;                         // already gone
+  if (!confirm(`Remove "${target.label}"?`)) return;
+  try {
+    const vault = loadRaw();                   // re-read: storage may have changed while the dialog was open
+    await saveVault(vault.accounts.filter(a => a.id !== id));
+    renderAccounts();
+  } catch (err) {
+    console.error(err);
+    alert('Could not save changes — the account was not removed.');
+  }
 }
 
 /* ── Hard reset ─────────────────────────────────────────────────────────────── */
