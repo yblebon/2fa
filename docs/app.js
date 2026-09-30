@@ -274,6 +274,18 @@ function refreshLockCopy() {
     : 'Enter your master password to access your codes.';
   $('unlock-btn').textContent = fresh ? 'Create' : 'Unlock';
   $('master-pass').autocomplete = fresh ? 'new-password' : 'current-password';
+
+  // Tell the user a vault is already stored here (the account count is stored unencrypted).
+  const notice = $('vault-notice');
+  notice.classList.toggle('visible', !fresh);
+  if (!fresh) {
+    let n = null;
+    for (const k of [VAULT_V6, VAULT_V5]) {
+      try { const v = JSON.parse(localStorage.getItem(k)); if (v && Array.isArray(v.accounts)) { n = v.accounts.length; break; } } catch {}
+    }
+    notice.textContent = '🔒 Vault locked — ' + (n === null ? 'an existing vault is loaded on this device.'
+      : `${n} account${n === 1 ? '' : 's'} stored on this device.`);
+  }
 }
 
 /* ── Unlock / lock ──────────────────────────────────────────────────────────── */

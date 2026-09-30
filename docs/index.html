@@ -114,6 +114,8 @@
       margin-bottom: 14px; line-height: 1.6;
     }
     #migrate-notice.visible { display: block; }
+    #vault-notice { display: none; background: var(--cyan-dim); border: 1px solid rgba(34,211,238,.3); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--cyan); margin-bottom: 14px; line-height: 1.6; }
+    #vault-notice.visible { display: block; }
     #vault-warn { display: none; background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--red); margin-bottom: 10px; line-height: 1.6; }
     #vault-warn.visible { display: block; }
     .acc:focus-visible, .acc-del:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
@@ -270,6 +272,7 @@
     <div class="panel">
       <div class="panel-title" id="lock-title">Unlock vault</div>
       <div class="panel-sub" id="lock-sub">Enter your master password to access your codes.</div>
+      <div id="vault-notice" role="status"></div>
       <div id="migrate-notice"></div>
       <div class="field">
         <input type="password" id="master-pass" placeholder="Master password" autocomplete="current-password">
